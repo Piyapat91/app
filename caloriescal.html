@@ -348,16 +348,12 @@
     <script>
         const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbza3Y1Xzql7VImSvY-_4HXpMoWWTb680tm5Lm-hxqPVy7fir4yDrTLHK1fcjcum_iAWOA/exec"; 
 
-        let entries = JSON.parse(localStorage.getItem('gas_entries_v3')) || [];
-        let weightData = JSON.parse(localStorage.getItem('gas_weight_data')) || {};
-        let goals = JSON.parse(localStorage.getItem('gas_goals')) || { energy: 1800, protein: 100 };
+        let entries = [];
+        let weightData = {};
+        let goals = { energy: 2000, protein: 100 };
         let currentWeightTime = 'morning';
         let calendarDate = new Date();
         let weightChart = null;
-
-        /**
-         * Helper for Cross-Origin Data Reading (JSONP)
-         */
         function fetchDataJSONP(action) {
             return new Promise((resolve, reject) => {
                 if (SCRIPT_URL.includes("YOUR_SCRIPT_URL")) {
@@ -417,22 +413,44 @@
                 const data = await fetchDataJSONP('read');
                 if (data) {
                     if (data.entries) entries = data.entries;
-                    if (data.weightData) weightData = data.weightData;
-                    if (data.goals) goals = data.goals;
                     
-                    localStorage.setItem('gas_entries_v3', JSON.stringify(entries));
-                    localStorage.setItem('gas_weight_data', JSON.stringify(weightData));
-                    localStorage.setItem('gas_goals', JSON.stringify(goals));
+                    // Normalize weightData keys to en-CA format
+                    if (data.weightData) {
+                        const normalized = {};
+                        Object.keys(data.weightData).forEach(k => {
+                            try {
+                                const d = new Date(k);
+                                if (!isNaN(d.getTime())) {
+                                    const cleanKey = d.toLocaleDateString('en-CA');
+                                    normalized[cleanKey] = data.weightData[k];
+                                } else {
+                                    normalized[k] = data.weightData[k];
+                                }
+                            } catch(e) { normalized[k] = data.weightData[k]; }
+                        });
+                        weightData = normalized;
+                    }
+                    
+                    if (data.goals) goals = data.goals;
                     
                     const goalInput = document.getElementById('set-goal');
                     const proteinGoalInput = document.getElementById('set-goal-protein');
                     if (goalInput) goalInput.value = goals.energy;
                     if (proteinGoalInput) proteinGoalInput.value = goals.protein || 100;
+                    
                     render();
-                    console.log("Cloud data loaded successfully");
+                    console.log("Cloud data loaded and normalized");
                 }
             } catch (e) {
                 console.error("Initialization Failed:", e);
+                // Try to recover from local storage if cloud fails
+                const localEntries = localStorage.getItem('gas_entries_v3');
+                if (localEntries) {
+                    entries = JSON.parse(localEntries);
+                    weightData = JSON.parse(localStorage.getItem('gas_weight_data') || '{}');
+                    goals = JSON.parse(localStorage.getItem('gas_goals') || '{"energy":2000,"protein":100}');
+                    render();
+                }
             } finally {
                 hideSyncLoader();
             }
@@ -558,7 +576,41 @@
             });
         }
 
+        function setWeightTime(t) {
+            currentWeightTime = t;
+            document.getElementById('btn-morning').className = `flex-1 py-3 text-xs font-bold rounded-xl transition-all ${t === 'morning' ? 'weight-btn-active' : 'text-slate-400'}`;
+            document.getElementById('btn-evening').className = `flex-1 py-3 text-xs font-bold rounded-xl transition-all ${t === 'evening' ? 'weight-btn-active' : 'text-slate-400'}`;
+        }
+
+        let isSyncing = false;
+        function saveWeight() {
+            if (isSyncing) return;
+            const val = parseFloat(document.getElementById('daily-weight').value);
+            if (isNaN(val)) return;
+            
+            const today = new Date().toLocaleDateString('en-CA');
+            if (!weightData[today]) weightData[today] = {};
+            weightData[today][currentWeightTime] = val;
+            
+            localStorage.setItem('gas_weight_data', JSON.stringify(weightData));
+            document.getElementById('daily-weight').value = '';
+            render();
+            
+            isSyncing = true;
+            syncToSheet().finally(() => { isSyncing = false; });
+            showMessage("บันทึกน้ำหนักแล้ว", "success");
+        }
+
+        function getDailyAvg(date) {
+            if (!weightData[date]) return null;
+            const m = weightData[date].morning;
+            const e = weightData[date].evening;
+            if (m && e) return (m + e) / 2;
+            return m || e || null;
+        }
+
         function addEntry() {
+            if (isSyncing) return;
             const name = document.getElementById('food-name').value;
             const cal = parseInt(document.getElementById('food-cal').value);
             if (!name || isNaN(cal)) {
@@ -568,7 +620,6 @@
 
             const newEntry = {
                 id: Date.now(),
-                // Use en-CA for reliable YYYY-MM-DD (e.g. 2026-05-03)
                 date: new Date().toLocaleDateString('en-CA'), 
                 meal: document.getElementById('meal-type').value,
                 name: name,
@@ -581,7 +632,6 @@
             entries.unshift(newEntry);
             localStorage.setItem('gas_entries_v3', JSON.stringify(entries));
             
-            // Reset UI inputs
             document.getElementById('food-name').value = '';
             document.getElementById('food-cal').value = '';
             document.getElementById('food-protein').value = '';
@@ -589,7 +639,8 @@
             document.getElementById('food-fat').value = '';
 
             render();
-            syncToSheet();
+            isSyncing = true;
+            syncToSheet().finally(() => { isSyncing = false; });
             showMessage("บันทึกอาหารแล้ว", "success");
         }
 
@@ -688,18 +739,12 @@
         }
 
         function render() {
-            const today = new Date().toISOString().split('T')[0];
+            const today = new Date().toLocaleDateString('en-CA'); // Reliable YYYY-MM-DD
             
-            // Robust date filtering: handles both ISO and long date strings from GAS
+            // Robust date filtering
             const todayEntries = entries.filter(e => {
                 if (!e.date) return false;
-                try {
-                    const d = new Date(e.date);
-                    if (isNaN(d.getTime())) return String(e.date).includes(today);
-                    return d.toISOString().split('T')[0] === today;
-                } catch (err) {
-                    return String(e.date).includes(today);
-                }
+                return String(e.date).includes(today);
             });
             
             const totalCal = todayEntries.reduce((s, e) => s + (e.calories || 0), 0);
@@ -797,20 +842,7 @@
         };
 
         window.onload = () => {
-            try {
-                // Render local data immediately first
-                render();
-                
-                const goalInput = document.getElementById('set-goal');
-                const proteinGoalInput = document.getElementById('set-goal-protein');
-                if (goalInput) goalInput.value = goals.energy;
-                if (proteinGoalInput) proteinGoalInput.value = goals.protein || 100;
-                
-                setWeightTime('morning');
-                
-                // Then fetch from cloud
-                initGAS();
-            } catch (e) { console.error("OnLoad Error:", e); }
+            initGAS();
         };
     </script>
 </body>
