@@ -334,11 +334,22 @@
                 </button>
             </div>
             
-            <div class="text-center">
-                <p class="text-[10px] text-slate-300 font-medium">Cloud Sync is active via Google Sheets</p>
-            </div>
         </div>
     </main>
+
+    <!-- Global Sync Loader Overlay -->
+    <div id="sync-loader" class="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-[9999] flex flex-col items-center justify-center transition-all opacity-0 pointer-events-none">
+        <div class="bg-white p-8 rounded-[3rem] shadow-2xl flex flex-col items-center gap-4 scale-90 transition-all duration-300" id="sync-loader-card">
+            <div class="relative w-16 h-16">
+                <div class="absolute inset-0 border-4 border-slate-100 rounded-full"></div>
+                <div class="absolute inset-0 border-4 border-orange-500 rounded-full border-t-transparent animate-spin"></div>
+            </div>
+            <div class="text-center">
+                <p id="sync-text" class="text-slate-800 font-bold text-sm">กำลังเชื่อมต่อ Cloud...</p>
+                <p class="text-slate-400 text-[10px] uppercase font-black tracking-widest mt-1">Please Wait</p>
+            </div>
+        </div>
+    </div>
 
     <script>
         const apiKey = "AIzaSyBhA0RS8bUoDVDuGQj7lP266gmWCa0m8SQ"; 
@@ -378,11 +389,30 @@
             });
         }
 
+        function showSyncLoader(text = "กำลังซิงค์ข้อมูล...") {
+            const loader = document.getElementById('sync-loader');
+            const card = document.getElementById('sync-loader-card');
+            const textEl = document.getElementById('sync-text');
+            textEl.innerText = text;
+            loader.classList.remove('opacity-0', 'pointer-events-none');
+            card.classList.remove('scale-90');
+            card.classList.add('scale-100');
+        }
+
+        function hideSyncLoader() {
+            const loader = document.getElementById('sync-loader');
+            const card = document.getElementById('sync-loader-card');
+            loader.classList.add('opacity-0', 'pointer-events-none');
+            card.classList.remove('scale-100');
+            card.classList.add('scale-90');
+        }
+
         /**
          * Initialize data from Google Sheets via JSONP
          */
         async function initGAS() {
             if (SCRIPT_URL.includes("YOUR_SCRIPT_URL")) return;
+            showSyncLoader("กำลังดึงข้อมูลล่าสุด...");
             try {
                 const data = await fetchDataJSONP('read');
                 // Check if cloud actually has data
@@ -409,7 +439,8 @@
                 }
             } catch (e) {
                 console.error("Cloud Sync Failed:", e);
-                // Local data is already rendered by window.onload
+            } finally {
+                hideSyncLoader();
             }
         }
 
@@ -428,20 +459,22 @@
                 }
             };
 
-            showMessage("กำลังซิงค์...", "success");
+            showSyncLoader("กำลังบันทึกลง Cloud...");
             try {
-                // Using no-cors mode for GAS POST
+                // Using no-cors mode for GAS POST - optimized for mobile
                 await fetch(SCRIPT_URL, {
                     method: 'POST',
                     mode: 'no-cors',
+                    cache: 'no-cache',
                     body: JSON.stringify(payload)
                 });
-                
-                setTimeout(() => {
-                    showMessage("ซิงค์สำเร็จ!", "success");
-                }, 1000);
+                showMessage("Sync Success", "success");
             } catch (err) {
+                console.error("Sync Error:", err);
                 showMessage("Sync Error: " + err.message);
+            } finally {
+                // Give it a small delay for smooth feel
+                setTimeout(hideSyncLoader, 800);
             }
         }
 
