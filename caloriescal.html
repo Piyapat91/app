@@ -338,9 +338,11 @@
                 <div class="absolute inset-0 border-4 border-slate-100 rounded-full"></div>
                 <div class="absolute inset-0 border-4 border-orange-500 rounded-full border-t-transparent animate-spin"></div>
             </div>
-            <div class="text-center">
+            <div class="text-center space-y-3">
                 <p id="sync-text" class="text-slate-800 font-bold text-sm">กำลังเชื่อมต่อ Cloud...</p>
-                <p class="text-slate-400 text-[10px] uppercase font-black tracking-widest mt-1">Please Wait</p>
+                <button onclick="hideSyncLoader()" class="px-4 py-1.5 bg-slate-100 text-slate-400 text-[10px] font-black uppercase tracking-widest rounded-full hover:bg-slate-200 transition">
+                    Skip Sync
+                </button>
             </div>
         </div>
     </div>
@@ -356,15 +358,11 @@
         let weightChart = null;
         function fetchDataJSONP(action) {
             return new Promise((resolve, reject) => {
-                if (SCRIPT_URL.includes("YOUR_SCRIPT_URL")) {
-                    resolve(null);
-                    return;
-                }
                 const callbackName = 'cb_' + Math.round(100000 * Math.random());
                 const script = document.createElement('script');
                 window[callbackName] = (data) => {
                     delete window[callbackName];
-                    document.body.removeChild(script);
+                    if (script.parentNode) document.body.removeChild(script);
                     resolve(data);
                 };
                 script.onerror = () => {
@@ -373,14 +371,6 @@
                 };
                 script.src = `${SCRIPT_URL}?action=${action}&callback=${callbackName}`;
                 document.body.appendChild(script);
-                // 30 seconds timeout for mobile stability
-                setTimeout(() => { 
-                    if (window[callbackName]) {
-                        delete window[callbackName];
-                        if (script.parentNode) document.body.removeChild(script);
-                        reject(new Error('Request Timeout'));
-                    }
-                }, 30000);
             });
         }
 
@@ -407,43 +397,30 @@
          */
         async function initGAS() {
             if (SCRIPT_URL.includes("YOUR_SCRIPT_URL")) return;
-            
             showSyncLoader("กำลังซิงค์ข้อมูล Cloud...");
             try {
                 const data = await fetchDataJSONP('read');
                 if (data) {
                     if (data.entries) entries = data.entries;
-                    
-                    // Normalize weightData keys to en-CA format
                     if (data.weightData) {
                         const normalized = {};
                         Object.keys(data.weightData).forEach(k => {
-                            try {
-                                const d = new Date(k);
-                                if (!isNaN(d.getTime())) {
-                                    const cleanKey = d.toLocaleDateString('en-CA');
-                                    normalized[cleanKey] = data.weightData[k];
-                                } else {
-                                    normalized[k] = data.weightData[k];
-                                }
-                            } catch(e) { normalized[k] = data.weightData[k]; }
+                            const d = new Date(k);
+                            const cleanKey = isNaN(d.getTime()) ? k : d.toLocaleDateString('en-CA');
+                            normalized[cleanKey] = data.weightData[k];
                         });
                         weightData = normalized;
                     }
-                    
                     if (data.goals) goals = data.goals;
                     
-                    const goalInput = document.getElementById('set-goal');
-                    const proteinGoalInput = document.getElementById('set-goal-protein');
-                    if (goalInput) goalInput.value = goals.energy;
-                    if (proteinGoalInput) proteinGoalInput.value = goals.protein || 100;
-                    
+                    document.getElementById('set-goal').value = goals.energy;
+                    document.getElementById('set-goal-protein').value = goals.protein || 100;
                     render();
-                    console.log("Cloud data loaded and normalized");
+                    showMessage("ซิงค์ข้อมูลสำเร็จ", "success");
                 }
             } catch (e) {
-                console.error("Initialization Failed:", e);
-                // Try to recover from local storage if cloud fails
+                showMessage("ซิงค์ไม่สำเร็จ: " + e.message);
+                // Recovery
                 const localEntries = localStorage.getItem('gas_entries_v3');
                 if (localEntries) {
                     entries = JSON.parse(localEntries);
