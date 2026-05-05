@@ -347,7 +347,8 @@
         // 1. Global State
         let entries = [];
         let weightData = {};
-        let goals = { energy: 2000, protein: 100, carbs: 250, fat: 65, geminiKey: "" };
+        let goals = { energy: 2000, protein: 100, carbs: 250, fat: 65 };
+        let geminiKey = localStorage.getItem('gas_gemini_key') || "";
         let currentWeightTime = 'morning';
         let calendarDate = new Date();
         let weightChart = null;
@@ -393,7 +394,7 @@
                 if (data) {
                     entries = data.entries || [];
                     weightData = data.weightData || {};
-                    goals = data.goals || { energy: 2000, protein: 100, carbs: 250, fat: 65, geminiKey: "" };
+                    goals = data.goals || { energy: 2000, protein: 100, carbs: 250, fat: 65 };
 
                     // Normalize weight keys
                     const norm = {};
@@ -408,14 +409,14 @@
                     document.getElementById('set-goal-protein').value = goals.protein;
                     document.getElementById('set-goal-carbs').value = goals.carbs || 250;
                     document.getElementById('set-goal-fat').value = goals.fat || 65;
-                    document.getElementById('gemini-key').value = goals.geminiKey || "";
+                    document.getElementById('gemini-key').value = geminiKey;
                     render();
                 }
             } catch (e) {
                 console.error(e);
                 entries = JSON.parse(localStorage.getItem('gas_entries_v3') || '[]');
                 weightData = JSON.parse(localStorage.getItem('gas_weight_data') || '{}');
-                goals = JSON.parse(localStorage.getItem('gas_goals') || '{"energy":2000,"protein":100,"carbs":250,"fat":65,"geminiKey":""}');
+                goals = JSON.parse(localStorage.getItem('gas_goals') || '{"energy":2000,"protein":100,"carbs":250,"fat":65}');
                 render();
             } finally { hideSyncLoader(); }
         }
@@ -499,7 +500,7 @@
 
         async function analyzeFoodAI() {
             const foodName = document.getElementById('food-name').value;
-            const apiKey = goals.geminiKey;
+            const apiKey = geminiKey;
             
             if (!foodName) return showMessage("กรุณากรอกชื่ออาหาร", "error");
             if (!apiKey) return showMessage("กรุณาใส่ Gemini API Key ในเมนู Settings ก่อน", "error");
@@ -562,7 +563,7 @@
         async function analyzeImageAI(event) {
             const file = event.target.files[0];
             if (!file) return;
-            const apiKey = goals.geminiKey;
+            const apiKey = geminiKey;
             if (!apiKey) return showMessage("กรุณาใส่ Gemini API Key ใน Settings ก่อน", "error");
 
             const camBtn = document.getElementById('cam-btn');
@@ -856,8 +857,13 @@
             goals.protein = parseInt(document.getElementById('set-goal-protein').value) || 100;
             goals.carbs = parseInt(document.getElementById('set-goal-carbs').value) || 250;
             goals.fat = parseInt(document.getElementById('set-goal-fat').value) || 65;
-            goals.geminiKey = document.getElementById('gemini-key').value;
-            localStorage.setItem('gas_goals', JSON.stringify(goals)); render(); syncToSheet();
+            
+            geminiKey = document.getElementById('gemini-key').value;
+            localStorage.setItem('gas_gemini_key', geminiKey);
+            
+            localStorage.setItem('gas_goals', JSON.stringify(goals)); 
+            render(); 
+            syncToSheet();
         }
         function changeMonth(o) { calendarDate.setMonth(calendarDate.getMonth() + o); renderCalendar(); }
         function resetData() { if (confirm("ล้างข้อมูล?")) { localStorage.clear(); location.reload(); } }
